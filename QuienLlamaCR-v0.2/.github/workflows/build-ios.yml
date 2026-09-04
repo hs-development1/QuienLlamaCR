@@ -1,0 +1,49 @@
+name: Build iOS IPA
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "QuienLlamaCR/**"
+      - "CallDirectoryExtension/**"
+      - "Shared/**"
+      - "Configuration/**"
+      - "Data/**"
+      - "project.yml"
+      - ".github/workflows/build-ios.yml"
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate Xcode project
+        run: xcodegen generate
+      - name: Build unsigned device app
+        run: |
+          set -o pipefail
+          xcodebuild -project QuienLlamaCR.xcodeproj -scheme QuienLlamaCR -configuration Release -sdk iphoneos -destination "generic/platform=iOS" -derivedDataPath "$PWD/build" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build | tee xcodebuild.log
+      - name: Package unsigned IPA
+        run: |
+          APP_PATH="$(find "$PWD/build/Build/Products/Release-iphoneos" -maxdepth 1 -name 'QuienLlamaCR.app' -print -quit)"
+          test -n "$APP_PATH"
+          mkdir -p package/Payload
+          cp -R "$APP_PATH" package/Payload/
+          (cd package && zip -qry ../QuienLlamaCR-unsigned.ipa Payload)
+          ls -lh QuienLlamaCR-unsigned.ipa
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: QuienLlamaCR-unsigned-ipa
+          path: QuienLlamaCR-unsigned.ipa
+          if-no-files-found: error
+      - name: Upload log if failed
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: xcodebuild.log
+          if-no-files-found: ignore
